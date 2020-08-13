@@ -8,7 +8,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "SEE LICENSE in LICENSE and extension/LICENSE",
   "devDependencies": {
     "webdriverio": "^6.3.5"
   }
