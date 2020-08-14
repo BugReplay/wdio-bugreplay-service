@@ -1,10 +1,31 @@
 BugReplay Software license (the “BugReplay Software License”)
 Copyright (c) 2020-present BugReplay Inc. (“BugReplay”)
 
-Consistent with the GitHub Terms of Service and the Node Package Manager Terms of Service, BugReplay grants user a nonexclusive license to view, display, and execute the contents in this directory (the “BugReplay Software”), without modification, solely for the purpose of utilizing the Webdriver.IO automated testing implementation (the “BugReplay Webdriver.IO Service”) and solely in conjunction with user’s purchase of or subscription to the BugReplay service as available at https://app.bugreplay.com/.
+Consistent with the GitHub Terms of Service and the Node Package Manager Terms of 
+Service, BugReplay grants user a nonexclusive license to view, display, and execute 
+the contents in this directory (the “BugReplay Software”), without modification, 
+solely for the purpose of utilizing the Webdriver.IO automated testing implementation 
+(the “BugReplay Webdriver.IO Service”) and solely in conjunction with user’s purchase 
+of or subscription to the BugReplay service as available at https://app.bugreplay.com/.
 
-The BugReplay Software may only be used by user if user (including any entity that user represents) (i) has agreed to, and is in compliance with, the BugReplay Terms of Service, available at https://www.bugreplay.com/tos (the “BugReplay TOS”), and all other agreements governing the use of the BugReplay Software, and (ii) has a valid BugReplay subscription. User is not granted any other rights beyond what is expressly stated herein. Subject to the foregoing, and without limiting the terms of the BugReplay TOS, user is not permitted to, and shall not, copy, merge, modify, publish, distribute, sublicense, and/or sell the BugReplay Software. User shall include the full text of this license in all copies or substantial portions of the BugReplay Software.
+The BugReplay Software may only be used by user if user (including any entity that 
+user represents) (i) has agreed to, and is in compliance with, the BugReplay Terms 
+of Service, available at https://www.bugreplay.com/tos (the “BugReplay TOS”), and 
+all other agreements governing the use of the BugReplay Software, and (ii) has a 
+valid BugReplay subscription. User is not granted any other rights beyond what is 
+expressly stated herein. Subject to the foregoing, and without limiting the terms 
+of the BugReplay TOS, user is not permitted to, and shall not, copy, merge, modify, 
+publish, distribute, sublicense, and/or sell the BugReplay Software. User shall include 
+the full text of this license in all copies or substantial portions of the BugReplay 
+Software.
  
-Without limiting the terms of the BugReplay TOS, THE BUGREPLAY SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE OR NONINFRINGEMENT. IN NO EVENT SHALL ANY OF THE SOFTWARE AUTHORS, COPYRIGHT HOLDERS, OR BUGREPLAY BE LIABLE TO USER OR ANY THIRD PARTY FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE BUGREPLAY SOFTWARE OR THE USE OR OTHER DEALINGS IN THE BUGREPLAY SOFTWARE.
+Without limiting the terms of the BugReplay TOS, THE BUGREPLAY SOFTWARE IS PROVIDED 
+"AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED 
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE OR NONINFRINGEMENT. 
+IN NO EVENT SHALL ANY OF THE SOFTWARE AUTHORS, COPYRIGHT HOLDERS, OR BUGREPLAY BE 
+LIABLE TO USER OR ANY THIRD PARTY FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER 
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
+WITH THE BUGREPLAY SOFTWARE OR THE USE OR OTHER DEALINGS IN THE BUGREPLAY SOFTWARE.
 
-For all third-party components incorporated into the BugReplay Software, those components are licensed under the original license provided by the owner of the applicable component.
+For all third-party components incorporated into the BugReplay Software, those components 
+are licensed under the original license provided by the owner of the applicable component.
