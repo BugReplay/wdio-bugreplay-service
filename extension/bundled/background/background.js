@@ -25,6 +25,14 @@ function actions(dispatch) {
             type: 'USER_INFO_RETRIEVAL_SUCCESS',
             payload: { userInfoResponse },
         }),
+        fbbTokenInfoRetrievalSuccess: fbbTokenResponse => dispatch({
+            type: 'FBB_TOKEN_INFO_RETRIEVAL_SUCCESS',
+            payload: { fbbTokenResponse },
+        }),
+        fbbTokenInfoRetrievalFailure: error => dispatch({
+            type: 'FBB_TOKEN_INFO_RETRIEVAL_FAILURE',
+            payload: { error },
+        }),
         userInfoRetrievalFailure: error => dispatch({
             type: 'USER_INFO_RETRIEVAL_FAILURE',
             payload: { error },
@@ -48,6 +56,13 @@ function actions(dispatch) {
         uploadingAssets: assets => dispatch({
             type: 'UPLOADING_ASSETS',
             payload: { assets },
+        }),
+        submitReportSuccess: (processingId, clientUrl) => dispatch({
+            type: 'REPORT_SUBMITTED',
+            payload: {
+                processingId,
+                clientUrl,
+            },
         }),
         reportProcessingSuccess: (processingId, processedReport, networkTrafficUploadError, uploadedSourceMapHashErrors) => dispatch({
             type: 'REPORT_PROCESSING_SUCCESS',
@@ -143,33 +158,24 @@ function handleBugReplayResponse(response) {
         return handleBugReplayJson(yield response.json());
     });
 }
-function fetchAccessTokens() {
+function fetchCookieByName(name) {
     return __awaiter(this, void 0, void 0, function* () {
-        // tslint:disable-next-line: typedef
         return new Promise(function (resolve, reject) {
-            // tslint:disable-next-line: typedef
-            chrome.cookies.getAll({ url: window.baseUrl }, function (cookies) {
-                // tslint:disable-next-line: no-let
-                let accessToken = '';
-                // tslint:disable-next-line: no-let
-                let refreshToken = '';
-                // tslint:disable-next-line: no-let
-                for (let i = 0; i < cookies.length; i++) {
-                    if (cookies[i].name === 'br_access_token') {
-                        accessToken = cookies[i].value;
-                    }
-                    else if (cookies[i].name === 'br_refresh_token') {
-                        refreshToken = cookies[i].value;
-                    }
+            chrome.cookies.get({ url: window.baseUrl, name: name }, function (cookie) {
+                if (cookie) {
+                    resolve(cookie.value);
                 }
-                if (accessToken !== '' && refreshToken !== '') {
-                    resolve([accessToken, refreshToken]);
+                else {
+                    reject(new Error('Cookie with name=' + name + ' not found'));
                 }
-                reject(new Error('No Access Token found'));
             });
         });
     });
 }
+function setApiKey(key) {
+    window.localStorage.setItem('br_api_key', key);
+}
+exports.setApiKey = setApiKey;
 function api(window, settings) {
     const urlFor = (path) => {
         return (window.apiBaseUrl +
@@ -199,36 +205,32 @@ function api(window, settings) {
     }
     function getAccessToken() {
         return __awaiter(this, void 0, void 0, function* () {
-            const tokens = yield fetchAccessTokens();
-            const accessToken = tokens[0];
-            const refreshToken = tokens[1];
-            // tslint:disable-next-line: typedef
+            const apiKey = window.localStorage.getItem('br_api_key');
+            if (apiKey) {
+                return Promise.resolve(apiKey);
+            }
+            const accessToken = yield fetchCookieByName('br_access_token');
+            const refreshToken = yield fetchCookieByName('br_refresh_token');
             return new Promise(function (resolve, reject) {
                 const decoded = jwt_decode(accessToken);
                 const expiration = decoded.exp;
                 const now = Math.floor(new Date().getTime() / 1000);
                 if (expiration - now > 20) {
-                    // console.log(
-                    //   'Token is still valid for another: ' + (expiration - now) + ' seconds'
-                    // )
                     resolve(accessToken);
                 }
                 else {
                     refreshTokens(accessToken, refreshToken)
                         .then((response) => {
-                        // console.log('Refresh Token: ' + response)
                         chrome.cookies.set({
                             name: 'br_access_token',
                             url: window.baseUrl,
                             value: response,
-                        }, 
-                        // tslint:disable-next-line: typedef
-                        function (cookie) {
+                            sameSite: 'strict',
+                        }, function (cookie) {
                             resolve(response);
                         });
                     })
                         .catch((error) => {
-                        // console.log('error')
                         reject(error);
                     });
                 }
@@ -238,12 +240,13 @@ function api(window, settings) {
     function fetchBugreplay(path) {
         return __awaiter(this, void 0, void 0, function* () {
             const url = urlFor(path);
-            // tslint:disable-next-line: no-let
+            const fbbext = window.fbbext;
             let accessToken = '';
             try {
                 accessToken = yield getAccessToken();
             }
             catch (error) {
+                console.log(error);
                 console.log('Here in catch error. No token found. User is not logged in unless there is an old style token around');
             }
             // Header either has Bearer if a token is present from the new br_ token cookies
@@ -297,6 +300,54 @@ function api(window, settings) {
             }
         });
     }
+    function fbbToken(apiKey, feedbackSessionTokenId) {
+        return __awaiter(this, void 0, void 0, function* () {
+            return new Promise((resolve, reject) => {
+                window.$.ajax({
+                    beforeSend(jqXHR) {
+                        jqXHR.setRequestHeader('X-BR-Origin', window.browser.runtime.id);
+                    },
+                    success: (_, __, jqXHR) => {
+                        let json = jqXHR.responseJSON;
+                        if (json.success && json.data) {
+                            resolve(json.data.external_report_jwt);
+                        }
+                        else {
+                            reject(json.error);
+                        }
+                    },
+                    error: reject,
+                    url: urlFor('/api/report/external-token'),
+                    method: 'POST',
+                    data: {
+                        api_key: apiKey,
+                        additional_args: {
+                            feedbackSessionTokenId: feedbackSessionTokenId,
+                        },
+                    },
+                });
+            });
+        });
+    }
+    function getFbbTokenInfo() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                const fbbCookie = yield fetchCookieByName('br_fbb');
+                const data = JSON.parse(decodeURIComponent(fbbCookie));
+                const externalReportJwt = yield fbbToken(data.apiKey, data.additionalOpts.feedbackSessionTokenId);
+                return {
+                    fetchedFromServer: true,
+                    externalReportJwt: externalReportJwt,
+                };
+            }
+            catch (error) {
+                return {
+                    fetchedFromServer: true,
+                    externalReportJwt: undefined,
+                };
+            }
+        });
+    }
     function getReports(page = 1, rows = settings.maxReportsToShow) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
@@ -313,15 +364,29 @@ function api(window, settings) {
     }
     function wrappedAjax(opts) {
         return __awaiter(this, void 0, void 0, function* () {
-            const accessToken = yield getAccessToken();
+            const fbbext = window.fbbext;
+            let fbbTokenResponse;
+            let accessToken = '';
+            if (fbbext) {
+                fbbTokenResponse = yield getFbbTokenInfo();
+            }
+            else {
+                accessToken = yield getAccessToken();
+            }
             // tslint:disable-next-line: typedef
             function makeRequest() {
                 return __awaiter(this, void 0, void 0, function* () {
                     const json = yield new Promise((resolve, reject) => {
                         window.$.ajax(Object.assign({ beforeSend(jqXHR) {
                                 jqXHR.setRequestHeader('X-BR-Origin', window.browser.runtime.id);
-                                if (accessToken !== '')
-                                    jqXHR.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+                                if (fbbext) {
+                                    if (fbbTokenResponse && fbbTokenResponse.externalReportJwt)
+                                        jqXHR.setRequestHeader('x-external-report-jwt', fbbTokenResponse.externalReportJwt);
+                                }
+                                else {
+                                    if (accessToken !== '')
+                                        jqXHR.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+                                }
                             }, success: resolve, error: reject }, lodash_1.omit(opts, 'errorMessageForUser')));
                     });
                     return handleBugReplayJson(json);
@@ -370,8 +435,23 @@ function api(window, settings) {
             }, {
                 errorMessageForUser: `Failed to upload ${prettyAssetNames[asset_type]}. Your report may appear corrupted.`,
             });
-            yield window.fetch(upload_link, { method: 'PUT', body: blob });
+            yield uploadToStorage(upload_link, blob);
             return { jwt };
+        });
+    }
+    function uploadToStorage(url, data) {
+        return __awaiter(this, void 0, void 0, function* () {
+            return new Promise((resolve, reject) => {
+                window.$.ajax({
+                    url,
+                    data,
+                    method: 'PUT',
+                    success: resolve,
+                    error: reject,
+                    processData: false,
+                    contentType: false,
+                });
+            });
         });
     }
     function uploadVideo(videoBlob) {
@@ -398,6 +478,10 @@ function api(window, settings) {
     function uploadUrlLogs(urlData) {
         const urlLog = new Blob([JSON.stringify({ url_log: urlData })]);
         return uploadAsset('urlLog', urlLog);
+    }
+    function uploadHAR(har) {
+        const harJSON = new Blob([JSON.stringify(har)]);
+        return uploadAsset('har', harJSON);
     }
     function uploadScreenshot(screenshot) {
         return uploadAsset('screenshot', screenshot.blob);
@@ -533,9 +617,14 @@ function api(window, settings) {
             const consoleData = recorders.tab.console.data;
             const urlData = recorders.tab.urlLog;
             const networkBuffer = recorders && recorders.tab.network.buffer;
+            const har = recorders && recorders.tab.network.har;
             const uploadingVideo = uploadVideo(videoBlob);
             const uploadingTimeOffsets = uploadTimeOffsets(videoFrameTimes);
             const uploadingNetworkTraffic = uploadNetworkData(networkBuffer);
+            let uploadingHAR;
+            if (Object.keys(har).length > 0) {
+                uploadingHAR = uploadHAR(har);
+            }
             const uploadingConsoleData = consoleData
                 ? uploadConsoleLogs(consoleData)
                 : Promise.resolve({ jwt: null });
@@ -548,13 +637,26 @@ function api(window, settings) {
             yield startTranscode(uploadedVideo.jwt, uploadedTimeOffsets.jwt, uploadedNetworkTraffic.jwt);
             const consoleDataJwt = (yield uploadingConsoleData).jwt;
             const urlDataJwt = (yield uploadingUrlData).jwt;
-            return lodash_1.compact([
-                uploadedVideo.jwt,
-                uploadedTimeOffsets.jwt,
-                consoleDataJwt,
-                urlDataJwt,
-                uploadedNetworkTraffic.jwt,
-            ]);
+            if (Object.keys(har).length > 0) {
+                const urlHARJwt = (yield uploadingHAR).jwt;
+                return lodash_1.compact([
+                    uploadedVideo.jwt,
+                    uploadedTimeOffsets.jwt,
+                    consoleDataJwt,
+                    urlDataJwt,
+                    uploadedNetworkTraffic.jwt,
+                    urlHARJwt,
+                ]);
+            }
+            else {
+                return lodash_1.compact([
+                    uploadedVideo.jwt,
+                    uploadedTimeOffsets.jwt,
+                    consoleDataJwt,
+                    urlDataJwt,
+                    uploadedNetworkTraffic.jwt,
+                ]);
+            }
         });
     }
     function createReport(report) {
@@ -687,6 +789,7 @@ function api(window, settings) {
         });
     }
     return {
+        getFbbTokenInfo,
         getUserInfo,
         getReports,
         uploadRecordingAssets,
@@ -710,7 +813,7 @@ function api(window, settings) {
 }
 exports.api = api;
 
-},{"jwt-decode":26,"lodash":27,"urijs":34}],3:[function(require,module,exports){
+},{"jwt-decode":27,"lodash":28,"urijs":35}],3:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const store_1 = require("./store");
@@ -722,10 +825,8 @@ const settings_1 = require("./settings");
 const Api = api_1.api(window, settings_1.settings);
 // Attach the store to the window so the popup can access it
 const store = (window.store = store_1.createStore(settings_1.settings, Api));
-chrome.runtime.onConnect.addListener(port => {
-    port.onMessage.addListener(function (message) {
-        store.dispatch(message.payload);
-    });
+chrome.runtime.onMessage.addListener(function (message) {
+    store.dispatch(message.payload);
 });
 chrome.tabs.onRemoved.addListener(tabId => store.dispatch({ type: 'TAB_CLOSED', payload: { tabId } }));
 subscribe_1.subscribe(window.baseUrl, window.apiBaseUrl, settings_1.settings, store, navigator, screen, browser, browser.tabs, browser.tabCapture, chrome.desktopCapture, chrome.browserAction, MediaRecorder, Blob, chrome, Api, notifications_1.notifications(chrome.notifications, chrome.tabs), browser_detection_1.capabilities);
@@ -744,7 +845,7 @@ if (!browser_detection_1.capabilities.isFirefox) {
     });
 }
 
-},{"../browser-detection":22,"./api":2,"./notifications":6,"./settings":15,"./store":16,"./subscribe":17}],4:[function(require,module,exports){
+},{"../browser-detection":23,"./api":2,"./notifications":7,"./settings":16,"./store":17,"./subscribe":18}],4:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.explanation = message => message.endsWith('.') || message.endsWith('!') ? message : `${message}.`;
@@ -753,6 +854,31 @@ exports.serverDown = exports.explanation('Cannot connect to server.');
 exports.unknown = 'Something went wrong. Please retry.';
 
 },{}],5:[function(require,module,exports){
+"use strict";
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+function checkFbbTokenInfo(api, dispatchBackgroundActions) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const fbbTokenResponse = yield api.getFbbTokenInfo();
+            dispatchBackgroundActions.fbbTokenInfoRetrievalSuccess(fbbTokenResponse);
+        }
+        catch (error) {
+            dispatchBackgroundActions.fbbTokenInfoRetrievalFailure(error);
+        }
+    });
+}
+exports.checkFbbTokenInfo = checkFbbTokenInfo;
+
+},{}],6:[function(require,module,exports){
 "use strict";
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -840,7 +966,7 @@ function checkIntegrations(api, dispatchBackgroundActions) {
 }
 exports.checkIntegrations = checkIntegrations;
 
-},{}],6:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 function notifications(chromeNotifications, chromeTabs) {
@@ -850,20 +976,23 @@ function notifications(chromeNotifications, chromeTabs) {
     });
     return {
         create(report) {
-            chromeNotifications.create(report.client_url, {
-                type: 'basic',
-                iconUrl: '/img/icon_active_128.png',
-                title: 'Your BugReplay report is ready',
-                message: 'Your report has finished processing and is ready to view.',
-                eventTime: Date.now(),
-                isClickable: true,
-            }, function () { });
+            const fbbext = window.fbbext;
+            if (!fbbext) {
+                chromeNotifications.create(report.client_url, {
+                    type: 'basic',
+                    iconUrl: '/img/icon_active_128.png',
+                    title: 'Your BugReplay report is ready',
+                    message: 'Your report has finished processing and is ready to view.',
+                    eventTime: Date.now(),
+                    isClickable: true,
+                }, function () { });
+            }
         },
     };
 }
 exports.notifications = notifications;
 
-},{}],7:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const toLog = new Set([
@@ -1018,7 +1147,7 @@ function startConsoleRecorder() {
 }
 exports.startConsoleRecorder = startConsoleRecorder;
 
-},{}],8:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 "use strict";
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -1082,7 +1211,7 @@ function startRecording(browser, baseUrl, apiBaseUrl, tab, type, navigator, scre
 }
 exports.startRecording = startRecording;
 
-},{"./tab":10,"./video":11,"lodash":27}],9:[function(require,module,exports){
+},{"./tab":11,"./video":12,"lodash":28}],10:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const lodash_1 = require("lodash");
@@ -1116,19 +1245,145 @@ const toLog = new Set([
 ]);
 function createChromeNetworkRecorder(tabId, chrome, onNetworkError) {
     const requests = new Map();
+    const harEntries = new Map();
     let buffer = ''; // tslint:disable-line:no-let
+    let har = {
+        log: {
+            version: '1.2',
+            creator: {
+                name: 'BugReplay',
+                version: '1.0',
+            },
+            pages: [],
+        },
+    };
     const log = (type, data) => (buffer += JSON.stringify({ type, data }));
     function onEvent(type, data) {
-        if (!toLog.has(type))
-            return;
         if (type === 'requestWillBeSent') {
             data.request.url = redactURI(data.request.url);
         }
-        log(type, data);
+        if (toLog.has(type)) {
+            log(type, data);
+        }
         const { requestId } = data;
         switch (type) {
+            case 'requestWillBeSentExtraInfo': {
+                let requestData = harEntries.get(requestId) || {};
+                if (data && data.associatedCookies) {
+                    requestData['request'] = requestData['request'] || {};
+                    requestData.request.cookies = [];
+                    data.associatedCookies.forEach(cookie => {
+                        if (cookie.blockedReasons.length == 0) {
+                            requestData.request.cookies.push(cookie.cookie);
+                        }
+                    });
+                }
+                if (data.headers) {
+                    requestData.request.headers = requestData.request.headers || [];
+                    for (var key in data.headers) {
+                        requestData.request.headers.push({
+                            name: key,
+                            value: data.headers[key],
+                        });
+                    }
+                }
+                harEntries.set(requestId, requestData);
+                return;
+            }
+            case 'responseReceived': {
+                let requestData = harEntries.get(requestId) || {};
+                if (data && data.response) {
+                    requestData['request'] = requestData['request'] || {};
+                    requestData.serverIPAddress = formatIP(data.response.remoteIPAddress);
+                    requestData.request['httpVersion'] = data.response.protocol;
+                    requestData.response = {
+                        status: data.response.status,
+                        statusText: data.response.statusText,
+                        httpVersion: data.response.protocol,
+                        cookies: [],
+                        headers: [],
+                        content: {
+                            mimeType: data.response.mimeType,
+                            size: 0,
+                            text: undefined,
+                        },
+                        redirectURL: '',
+                        headersSize: -1,
+                        bodySize: -1,
+                    };
+                    if (data.response.timing) {
+                        requestData['timings'] = requestData['timings'] || {};
+                        requestData.timings['blocked'] = formatMillis(firstNonNegative([
+                            data.response.timing.dnsStart,
+                            data.response.timing.connectStart,
+                            data.response.timing.sendStart,
+                        ]));
+                        requestData.timings['dns'] = parseOptionalTime(data.response.timing, 'dnsStart', 'dnsEnd');
+                        requestData.timings['connect'] = parseOptionalTime(data.response.timing, 'connectStart', 'connectEnd');
+                        requestData.timings['send'] = formatMillis(data.response.timing.sendEnd - data.response.timing.sendStart);
+                        requestData.timings['wait'] = formatMillis(data.response.timing.receiveHeadersEnd -
+                            data.response.timing.sendEnd);
+                        requestData.timings['receive'] = 0;
+                        requestData.timings['ssl'] = parseOptionalTime(data.response.timing, 'sslStart', 'sslEnd');
+                        requestData.time = Object['values'](requestData.timings)
+                            .filter(function (x) {
+                            return x > 0;
+                        })
+                            .reduce((a, b) => a + b, 0);
+                    }
+                    if (data.response && data.response.headers) {
+                        for (var key in data.response.headers) {
+                            requestData.response.headers.push({
+                                name: key,
+                                value: data.response.headers[key],
+                            });
+                        }
+                    }
+                }
+                harEntries.set(requestId, requestData);
+                return;
+            }
             case 'requestWillBeSent': {
                 requests.set(requestId, data);
+                let requestData = harEntries.get(requestId) || {};
+                requestData['request'] = requestData['request'] || {};
+                requestData.response = {};
+                requestData.cache = {};
+                requestData.timings = {
+                    blocked: -1,
+                    dns: -1,
+                    connect: -1,
+                    send: 0,
+                    wait: 0,
+                    receive: 0,
+                    ssl: -1,
+                };
+                requestData.startedDateTime = new Date(data.wallTime * 1000).toISOString();
+                requestData.time = 0;
+                requestData.request.method = data.request.method;
+                requestData.request.url = data.request.url;
+                requestData.request.httpVersion = '';
+                requestData.request.cookies = requestData.request.cookies || [];
+                requestData.request.headers = requestData.request.headers || [];
+                requestData.request.queryString = [];
+                requestData.request.headersSize = -1;
+                requestData.request.bodySize = isEmpty(requestData.request.postData)
+                    ? 0
+                    : requestData.request.postData.length;
+                if (data.request.headers) {
+                    for (var key in data.request.headers) {
+                        requestData.request.headers.push({
+                            name: key,
+                            value: data.request.headers[key],
+                        });
+                    }
+                }
+                harEntries.set(requestId, requestData);
+                if (data.request.hasPostData) {
+                    let requestData = harEntries.get(requestId);
+                    requestData.request.postData = parsePostData(getHeaderValue(data.request.headers, 'Content-Type'), data.request.postData);
+                    harEntries.set(requestId, requestData);
+                }
                 return;
             }
             case 'loadingFailed': {
@@ -1159,7 +1414,81 @@ function createChromeNetworkRecorder(tabId, chrome, onNetworkError) {
         }
     }
     function stop() {
-        return { buffer };
+        har['log']['entries'] = Array.from(harEntries.values()).filter(function (x) {
+            if (x.response) {
+                return Object.keys(x.response).length > 0;
+            }
+        });
+        return { buffer, har };
+    }
+    function formatIP(ipAddress) {
+        if (typeof ipAddress !== 'string') {
+            return undefined;
+        }
+        // IPv6 addresses are listed as [2a00:1450:400f:80a::2003]
+        return ipAddress.replace(/^\[|]$/g, '');
+    }
+    function formatMillis(time, fractionalDigits = 3) {
+        return Number(Number(time).toFixed(fractionalDigits));
+    }
+    function parseOptionalTime(timing, start, end) {
+        if (timing[start] >= 0) {
+            return formatMillis(timing[end] - timing[start]);
+        }
+        return -1;
+    }
+    function getHeaderValue(headers, header) {
+        if (!headers) {
+            return '';
+        }
+        // http header names are case insensitive
+        const lowerCaseHeader = header.toLowerCase();
+        const headerNames = Object.keys(headers);
+        return (headerNames
+            .filter(key => key.toLowerCase() === lowerCaseHeader)
+            .map(key => headers[key])
+            .shift() || '');
+    }
+    function isEmpty(o) {
+        return !o;
+    }
+    function isHttp1x(version) {
+        return version.toLowerCase().startsWith('http/1.');
+    }
+    function parsePostData(contentType, postData) {
+        if (isEmpty(contentType) || isEmpty(postData)) {
+            return undefined;
+        }
+        try {
+            if (/^application\/x-www-form-urlencoded/.test(contentType)) {
+                return {
+                    mimeType: contentType,
+                    params: this.parseUrlEncoded(postData),
+                };
+            }
+            if (/^application\/json/.test(contentType)) {
+                return {
+                    mimeType: contentType,
+                    params: this.toNameValuePairs(JSON.parse(postData)),
+                };
+            }
+            // FIXME parse multipart/form-data as well.
+        }
+        catch (e) {
+            // debug(`Unable to parse post data '${postData}' of type ${contentType}`);
+            // Fall back to include postData as text.
+        }
+        return {
+            mimeType: contentType,
+            text: postData,
+        };
+    }
+    function firstNonNegative(values) {
+        for (let i = 0; i < values.length; ++i) {
+            if (values[i] >= 0)
+                return values[i];
+        }
+        return -1;
     }
     return {
         onEvent,
@@ -1272,7 +1601,7 @@ function createFirefoxNetworkRecorder(browser, tabId) {
         browser.webRequest.onSendHeaders.removeListener(onSendHeaders);
         browser.webRequest.onHeadersReceived.removeListener(onHeadersReceived);
         browser.webRequest.onCompleted.removeListener(onCompleted);
-        return { buffer };
+        return { buffer, har: {} };
     });
     return {
         start,
@@ -1281,7 +1610,7 @@ function createFirefoxNetworkRecorder(browser, tabId) {
 }
 exports.createFirefoxNetworkRecorder = createFirefoxNetworkRecorder;
 
-},{"lodash":27}],10:[function(require,module,exports){
+},{"lodash":28}],11:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const network_1 = require("./network");
@@ -1457,7 +1786,7 @@ function createTabRecorder(browser, tabId, chrome, capabilities, onDebuggerDetac
 }
 exports.createTabRecorder = createTabRecorder;
 
-},{"./console":7,"./network":9}],11:[function(require,module,exports){
+},{"./console":8,"./network":10}],12:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const lodash_1 = require("lodash");
@@ -1470,8 +1799,11 @@ function userMediaConstraints(tab) {
     if (h % 2 !== 0)
         h -= 1;
     return {
-        audio: false,
+        audio: true,
         video: true,
+        audioConstraints: {
+            mandatory: { echoCancellation: true },
+        },
         videoConstraints: {
             mandatory: { minWidth: w, minHeight: h, maxWidth: w, maxHeight: h },
         },
@@ -1500,9 +1832,51 @@ function startChromeVideoRecorder(tab, type, navigator, screen, tabCapture, desk
         }
         return stopped;
     });
+    function getMixedAudioStream(arrayOfMediaStreams) {
+        var context = new window.AudioContext();
+        var audioSources = [];
+        var gainNode = context.createGain();
+        gainNode.connect(context.destination);
+        gainNode.gain.value = 0; // don't hear self
+        var audioTracksLength = 0;
+        arrayOfMediaStreams.forEach(function (stream) {
+            if (!getTracks(stream, 'audio').length) {
+                return;
+            }
+            audioTracksLength++;
+            var audioSource = context.createMediaStreamSource(stream);
+            audioSource.connect(gainNode);
+            audioSources.push(audioSource);
+        });
+        if (!audioTracksLength) {
+            return;
+        }
+        const mediaStremDestination = context.createMediaStreamDestination();
+        audioSources.forEach(function (audioSource) {
+            audioSource.connect(mediaStremDestination);
+        });
+        return mediaStremDestination.stream;
+    }
+    function getTracks(stream, kind) {
+        if (!stream || !stream.getTracks) {
+            return [];
+        }
+        return stream.getTracks().filter(function (t) {
+            return t.kind === (kind || 'audio');
+        });
+    }
     function streamWithAudio(videoStream, audioStream) {
         if (audioStream) {
-            videoStream.addTrack(audioStream.getTracks()[0]);
+            var mixAudioStream = getMixedAudioStream([videoStream, audioStream]);
+            if (mixAudioStream && getTracks(mixAudioStream, 'audio').length) {
+                var mixedTrack = getTracks(mixAudioStream, 'audio')[0];
+                videoStream.addTrack(mixedTrack);
+                getTracks(videoStream, 'audio').forEach(function (track) {
+                    if (track === mixedTrack)
+                        return;
+                    videoStream.removeTrack(track);
+                });
+            }
         }
         return videoStream;
     }
@@ -1604,6 +1978,13 @@ function startChromeVideoRecorder(tab, type, navigator, screen, tabCapture, desk
             console.log(tab);
             recordMicPromise
                 .then(micStream => {
+                var onlySpeakersAudio = new MediaStream();
+                tabStream.getAudioTracks().forEach(function (track) {
+                    onlySpeakersAudio.addTrack(track);
+                });
+                let audio = new Audio();
+                audio.srcObject = onlySpeakersAudio;
+                audio.play();
                 withStream(streamWithAudio(tabStream, micStream));
             })
                 .catch(error => {
@@ -1622,11 +2003,23 @@ function startChromeVideoRecorder(tab, type, navigator, screen, tabCapture, desk
         cancel = stop;
     }
     else {
-        const desktopCaptureRequestId = desktopCapture.chooseDesktopMedia(['window', 'screen'], streamId => {
+        const desktopCaptureRequestId = desktopCapture.chooseDesktopMedia(['window', 'screen', 'tab', 'audio'], 
+        // @ts-ignore
+        (streamId, options) => {
             if (!streamId)
                 return onCancel();
+            let audioContraints = false;
+            if (options && options.canRequestAudioTrack) {
+                audioContraints = {
+                    mandatory: {
+                        chromeMediaSource: 'desktop',
+                        chromeMediaSourceId: streamId,
+                        echoCancellation: true,
+                    },
+                };
+            }
             navigator.webkitGetUserMedia({
-                audio: false,
+                audio: audioContraints,
                 video: {
                     mandatory: {
                         maxWidth: screen.width,
@@ -1822,7 +2215,7 @@ function startVideoRecorder(browser, baseUrl, apiBaseUrl, tab, type, navigator, 
 }
 exports.startVideoRecorder = startVideoRecorder;
 
-},{"lodash":27}],12:[function(require,module,exports){
+},{"lodash":28}],13:[function(require,module,exports){
 "use strict";
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -1881,16 +2274,17 @@ function uploadReportAssets(report, api) {
     throw new Error('A report must have either recorders or screenshots');
 }
 exports.uploadReportAssets = uploadReportAssets;
-function doSubmitReport(navigator, report, api, settings, setReportId // Set the report id so that even if creating the report times out or fails we can clean up the partially created report
+function doSubmitReport(navigator, report, api, settings, dispatchBackgroundActions, setReportId // Set the report id so that even if creating the report times out or fails we can clean up the partially created report
 ) {
     return __awaiter(this, void 0, void 0, function* () {
         let networkTrafficUploadError = null;
+        const fbbext = window.fbbext;
         const { recorders, tab } = report;
         const networkBuffer = recorders && recorders.tab.network.buffer;
         const consoleData = recorders && recorders.tab.console.data;
         const sourceMapHash = recorders && recorders.tab.console.sourceMapHash;
         const assets = yield uploadReportAssets(report, api);
-        const createdReport = yield api.createReport({
+        let reportData = {
             source_url: tab.url,
             user_agent: navigator.userAgent,
             has_console_logs: !!consoleData,
@@ -1905,13 +2299,18 @@ function doSubmitReport(navigator, report, api, settings, setReportId // Set the
                 : undefined,
             title: report.details.title,
             description: report.details.description,
-            project_id: report.details.project_id,
-        });
+        };
+        if (reportData.source_url == 'about:blank') {
+            delete reportData.source_url;
+        }
+        if (!fbbext) {
+            reportData['project_id'] = report.details.project_id;
+        }
+        const createdReport = yield api.createReport(reportData);
         const { report_id } = createdReport.report;
+        const { client_url } = createdReport;
         setReportId(report_id);
-        // const uploadingNetworkBuffer =
-        //   networkBuffer &&
-        //   api.uploadNetworkData(networkBuffer, createdReport.report_token)
+        dispatchBackgroundActions.submitReportSuccess(report.processingId, client_url);
         const uploadingSourceMapHash = lodash_1.isEmpty(sourceMapHash)
             ? Promise.resolve({ jwts: [], errors: [] })
             : api.uploadSourceMaps(sourceMapHash);
@@ -1921,20 +2320,24 @@ function doSubmitReport(navigator, report, api, settings, setReportId // Set the
         const creatingTrelloCard = report.details.trello &&
             report.details.trello.createCard &&
             api.createTrelloCard(report_id, report.details.trello);
-        // try {
-        //   await uploadingNetworkBuffer
-        // } catch (error) {
-        //   networkTrafficUploadError = error
-        // }
         const uploadedSourceMapHash = yield uploadingSourceMapHash;
         yield creatingJiraTicket;
         yield creatingTrelloCard;
-        const processedReport = yield waitForReportToFinishProcessing(api, report_id, settings);
-        return {
-            processedReport,
-            networkTrafficUploadError,
-            uploadedSourceMapHashErrors: uploadedSourceMapHash.errors,
-        };
+        if (!fbbext) {
+            const processedReport = yield waitForReportToFinishProcessing(api, report_id, settings);
+            return {
+                processedReport,
+                networkTrafficUploadError,
+                uploadedSourceMapHashErrors: uploadedSourceMapHash.errors,
+            };
+        }
+        else {
+            return {
+                processedReport: createdReport.report,
+                networkTrafficUploadError,
+                uploadedSourceMapHashErrors: uploadedSourceMapHash.errors,
+            };
+        }
     });
 }
 exports.doSubmitReport = doSubmitReport;
@@ -1943,7 +2346,7 @@ function submitReport(navigator, report, api, settings, dispatchBackgroundAction
         let report_id;
         try {
             const { processedReport, networkTrafficUploadError, uploadedSourceMapHashErrors, } = yield Promise.race([
-                doSubmitReport(navigator, report, api, settings, r => {
+                doSubmitReport(navigator, report, api, settings, dispatchBackgroundActions, r => {
                     report_id = r;
                 }),
                 new Promise((_resolve, reject) => setTimeout(() => reject({ message: 'Timed out creating report.' }), settings.maxSecondsProcessing * 1000)),
@@ -1960,7 +2363,7 @@ function submitReport(navigator, report, api, settings, dispatchBackgroundAction
 }
 exports.submitReport = submitReport;
 
-},{"lodash":27}],13:[function(require,module,exports){
+},{"lodash":28}],14:[function(require,module,exports){
 "use strict";
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -1985,7 +2388,7 @@ function checkReports(api, dispatchBackgroundActions) {
 }
 exports.checkReports = checkReports;
 
-},{}],14:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 "use strict";
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -2035,7 +2438,7 @@ function takeScreenshot(tab, tabs, dispatchBackgroundActions) {
 }
 exports.takeScreenshot = takeScreenshot;
 
-},{}],15:[function(require,module,exports){
+},{}],16:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 function getExtensionVersion() {
@@ -2056,16 +2459,21 @@ exports.settings = {
     extensionVersion: getExtensionVersion(),
 };
 
-},{}],16:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const redux = require("redux");
 const lodash_1 = require("lodash");
 const errors = require("./errors");
 const utils_1 = require("../utils");
+const api_1 = require("./api");
 const emptyState = {
+    fbbInit: true,
     popup: {
         connected: false,
+    },
+    fbbTokenResponse: {
+        fetchedFromServer: false,
     },
     userInfoResponse: null,
     screenshot: {
@@ -2097,15 +2505,29 @@ const emptyState = {
     recordMic: false,
     countdownTimer: false,
 };
-const reportStarted = ({ userInfoResponse }) => ({
-    started: true,
-    details: {
-        title: '',
-        description: '',
-        project_id: userInfoResponse.userInfo
-            .active_projects[0].project_id,
-    },
-});
+const reportStarted = ({ userInfoResponse }) => {
+    const fbbext = window.fbbext;
+    if (fbbext) {
+        return {
+            started: true,
+            details: {
+                title: '',
+                description: '',
+            },
+        };
+    }
+    else {
+        return {
+            started: true,
+            details: {
+                title: '',
+                description: '',
+                project_id: userInfoResponse.userInfo
+                    .active_projects[0].project_id,
+            },
+        };
+    }
+};
 function logErrorAndReturnCopyForUser(settings, api, initialState, action) {
     const { error } = action.payload;
     if (!settings.isTestEnvironment) {
@@ -2141,12 +2563,26 @@ function logErrorAndReturnCopyForUser(settings, api, initialState, action) {
     return errors.explanation(message);
 }
 function reducer(settings, api, initialState = emptyState, action) {
+    const fbbext = window.fbbext;
     switch (action.type) {
         case 'POPUP_CONNECT': {
-            return Object.assign(Object.assign({}, initialState), { popup: {
-                    connected: true,
-                    activeTab: null,
-                } });
+            if (fbbext && !initialState.fbbTokenResponse.externalReportJwt) {
+                return Object.assign(Object.assign({}, initialState), { popup: {
+                        connected: true,
+                        activeTab: null,
+                    }, reports: {
+                        fetchedFromServer: initialState.reports.fetchedFromServer,
+                        processed: [],
+                        processing: [],
+                        failed: [],
+                    } });
+            }
+            else {
+                return Object.assign(Object.assign({}, initialState), { popup: {
+                        connected: true,
+                        activeTab: null,
+                    } });
+            }
         }
         case 'POPUP_DISCONNECT': {
             return Object.assign(Object.assign({}, initialState), { popup: { connected: false }, userInfoResponse: initialState.userInfoResponse &&
@@ -2216,6 +2652,30 @@ function reducer(settings, api, initialState = emptyState, action) {
         case 'CANCEL_REPORT': {
             return Object.assign(Object.assign({}, initialState), { recording: emptyState.recording, report: emptyState.report, screenshot: emptyState.screenshot });
         }
+        case 'RESET_FBB_INIT': {
+            return Object.assign(Object.assign({}, initialState), { fbbInit: false });
+        }
+        case 'RESET_FBB': {
+            return Object.assign(Object.assign({}, initialState), { fbbTokenResponse: {
+                    fetchedFromServer: false,
+                    externalReportJwt: undefined,
+                }, reports: {
+                    fetchedFromServer: initialState.reports.fetchedFromServer,
+                    processed: [],
+                    processing: [],
+                    failed: [],
+                } });
+        }
+        case 'REPORT_SUBMITTED': {
+            let reports = initialState.reports;
+            let processingReports = reports.processing;
+            reports.processing.forEach(report => {
+                if (report.processingId == action.payload.processingId) {
+                    report.clientUrl = action.payload.clientUrl;
+                }
+            });
+            return Object.assign(Object.assign({}, initialState), { reports: reports });
+        }
         case 'CLICK_SUBMIT_REPORT': {
             const reportDetails = initialState.report.details;
             if (!reportDetails)
@@ -2277,6 +2737,14 @@ function reducer(settings, api, initialState = emptyState, action) {
         case 'USER_INFO_RETRIEVAL_SUCCESS': {
             return Object.assign(Object.assign({}, initialState), { userInfoResponse: action.payload.userInfoResponse });
         }
+        case 'FBB_TOKEN_INFO_RETRIEVAL_SUCCESS': {
+            return Object.assign(Object.assign({}, initialState), { fbbTokenResponse: action.payload.fbbTokenResponse });
+        }
+        case 'FBB_TOKEN_INFO_RETRIEVAL_FAILURE': {
+            return Object.assign(Object.assign({}, initialState), { fbbTokenResponse: {
+                    fetchedFromServer: false,
+                } });
+        }
         case 'USER_INFO_RETRIEVAL_FAILURE': {
             return Object.assign(Object.assign({}, initialState), { alert: logErrorAndReturnCopyForUser(settings, api, initialState, action) });
         }
@@ -2335,6 +2803,10 @@ function reducer(settings, api, initialState = emptyState, action) {
                     payload: { error },
                 });
             });
+            if (action.payload.processedReport &&
+                action.payload.processedReport.report_type === 'External') {
+                chrome.cookies.remove({ url: window.baseUrl, name: 'br_fbb' });
+            }
             return Object.assign(Object.assign({}, initialState), { reports: {
                     fetchedFromServer: true,
                     processing: initialState.reports.processing.filter(report => report.processingId !== action.payload.processingId),
@@ -2388,6 +2860,11 @@ function reducer(settings, api, initialState = emptyState, action) {
         case 'INTEGRATIONS_RETRIEVAL_FAILURE': {
             return Object.assign(Object.assign({}, initialState), { alert: logErrorAndReturnCopyForUser(settings, api, initialState, action) });
         }
+        case 'SET_API_KEY': {
+            // This is a bit abnormal
+            api_1.setApiKey(action.payload);
+            return initialState;
+        }
         default: {
             const faultyAction = action;
             if (!/^@@redux/.test(faultyAction.type)) {
@@ -2410,7 +2887,7 @@ function createStore(settings, api) {
 }
 exports.createStore = createStore;
 
-},{"../utils":23,"./errors":4,"lodash":27,"redux":29}],17:[function(require,module,exports){
+},{"../utils":24,"./api":2,"./errors":4,"lodash":28,"redux":30}],18:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const actions_1 = require("./actions");
@@ -2418,6 +2895,7 @@ const tab_1 = require("./tab");
 const recording_1 = require("./recording");
 const report_1 = require("./report");
 const user_1 = require("./user");
+const fbb_1 = require("./fbb");
 const reports_1 = require("./reports");
 const integrations_1 = require("./integrations");
 const screenshot_1 = require("./screenshot");
@@ -2426,6 +2904,7 @@ const timer_1 = require("./timer");
 function subscribe(baseUrl, apiBaseUrl, settings, store, navigator, screen, browser, tabs, tabCapture, desktopCapture, browserAction, MediaRecorder, Blob, chrome, api, notifications, capabilities) {
     const dispatchBackgroundActions = actions_1.actions(store.dispatch);
     const timer = timer_1.createTimer(browserAction);
+    const fbbext = window.fbbext;
     let previousState = store.getState(); // tslint:disable-line:no-let
     return store.subscribe(() => {
         const nextState = store.getState();
@@ -2433,10 +2912,16 @@ function subscribe(baseUrl, apiBaseUrl, settings, store, navigator, screen, brow
         previousState = nextState;
         // Check the active tab if the user just connected
         if (nextState.popup.connected && !prevState.popup.connected) {
-            tab_1.checkActiveTab(tabs, dispatchBackgroundActions);
-            user_1.checkUserInfo(api, dispatchBackgroundActions);
-            reports_1.checkReports(api, dispatchBackgroundActions);
-            integrations_1.checkIntegrations(api, dispatchBackgroundActions);
+            if (fbbext) {
+                tab_1.checkActiveTab(tabs, dispatchBackgroundActions);
+                fbb_1.checkFbbTokenInfo(api, dispatchBackgroundActions);
+            }
+            else {
+                tab_1.checkActiveTab(tabs, dispatchBackgroundActions);
+                user_1.checkUserInfo(api, dispatchBackgroundActions);
+                reports_1.checkReports(api, dispatchBackgroundActions);
+                integrations_1.checkIntegrations(api, dispatchBackgroundActions);
+            }
             // On firefox, if the user started a recording, but the recording hasn't actually started when the popup connects, cancel the recording
             if (nextState.recording.startedByUser &&
                 !nextState.recording.started &&
@@ -2529,7 +3014,7 @@ function subscribe(baseUrl, apiBaseUrl, settings, store, navigator, screen, brow
 }
 exports.subscribe = subscribe;
 
-},{"./actions":1,"./integrations":5,"./recording":8,"./report":12,"./reports":13,"./screenshot":14,"./system-info":18,"./tab":19,"./timer":20,"./user":21}],18:[function(require,module,exports){
+},{"./actions":1,"./fbb":5,"./integrations":6,"./recording":9,"./report":13,"./reports":14,"./screenshot":15,"./system-info":19,"./tab":20,"./timer":21,"./user":22}],19:[function(require,module,exports){
 "use strict";
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -2598,7 +3083,7 @@ function checkSystemInfo(navigator, chrome, tabs, tab, dispatch) {
 }
 exports.checkSystemInfo = checkSystemInfo;
 
-},{}],19:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 "use strict";
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -2620,15 +3105,20 @@ function checkActiveTab(tabs, dispatchBackgroundActions) {
         if (!activeTab) {
             return dispatchBackgroundActions.noActiveTabDetected();
         }
-        const bugreplayDisabledOnTab = activeTab.url
-            ? !activeTab.url.startsWith('http')
-            : false;
+        const bugreplayDisabledOnTab = false;
+        if (activeTab &&
+            activeTab.url &&
+            activeTab.id &&
+            !activeTab.url.startsWith('http') &&
+            activeTab.url !== 'about:blank') {
+            tabs.update(activeTab.id, { url: 'about:blank' });
+        }
         dispatchBackgroundActions.activeTabDetected(activeTab, bugreplayDisabledOnTab);
     });
 }
 exports.checkActiveTab = checkActiveTab;
 
-},{}],20:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const browser_detection_1 = require("../browser-detection");
@@ -2692,7 +3182,7 @@ function createTimer(browserAction) {
 }
 exports.createTimer = createTimer;
 
-},{"../browser-detection":22}],21:[function(require,module,exports){
+},{"../browser-detection":23}],22:[function(require,module,exports){
 "use strict";
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -2717,7 +3207,7 @@ function checkUserInfo(api, dispatchBackgroundActions) {
 }
 exports.checkUserInfo = checkUserInfo;
 
-},{}],22:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 function majorVersion(browser, navigator) {
@@ -2774,7 +3264,7 @@ function detectCapabilities(browser, navigator) {
 }
 exports.capabilities = detectCapabilities(browser, navigator);
 
-},{}],23:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 function randId() {
@@ -2786,7 +3276,7 @@ function randId() {
 }
 exports.randId = randId;
 
-},{}],24:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 /**
  * The code was extracted from:
  * https://github.com/davidchambers/Base64.js
@@ -2826,7 +3316,7 @@ function polyfill (input) {
 
 module.exports = typeof window !== 'undefined' && window.atob && window.atob.bind(window) || polyfill;
 
-},{}],25:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 var atob = require('./atob');
 
 function b64DecodeUnicode(str) {
@@ -2861,7 +3351,7 @@ module.exports = function(str) {
   }
 };
 
-},{"./atob":24}],26:[function(require,module,exports){
+},{"./atob":25}],27:[function(require,module,exports){
 'use strict';
 
 var base64_url_decode = require('./base64_url_decode');
@@ -2889,7 +3379,7 @@ module.exports = function (token,options) {
 
 module.exports.InvalidTokenError = InvalidTokenError;
 
-},{"./base64_url_decode":25}],27:[function(require,module,exports){
+},{"./base64_url_decode":26}],28:[function(require,module,exports){
 (function (global){
 /**
  * @license
@@ -20005,7 +20495,7 @@ module.exports.InvalidTokenError = InvalidTokenError;
 }.call(this));
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],28:[function(require,module,exports){
+},{}],29:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -20191,7 +20681,7 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],29:[function(require,module,exports){
+},{}],30:[function(require,module,exports){
 (function (process){
 'use strict';
 
@@ -20842,7 +21332,7 @@ exports.compose = compose;
 exports.__DO_NOT_USE__ActionTypes = ActionTypes;
 
 }).call(this,require('_process'))
-},{"_process":28,"symbol-observable":30}],30:[function(require,module,exports){
+},{"_process":29,"symbol-observable":31}],31:[function(require,module,exports){
 (function (global){
 'use strict';
 
@@ -20874,7 +21364,7 @@ if (typeof self !== 'undefined') {
 var result = (0, _ponyfill2['default'])(root);
 exports['default'] = result;
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./ponyfill.js":31}],31:[function(require,module,exports){
+},{"./ponyfill.js":32}],32:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -20898,7 +21388,7 @@ function symbolObservablePonyfill(root) {
 
 	return result;
 };
-},{}],32:[function(require,module,exports){
+},{}],33:[function(require,module,exports){
 /*!
  * URI.js - Mutating URLs
  * IPv6 Support
@@ -21085,7 +21575,7 @@ function symbolObservablePonyfill(root) {
   };
 }));
 
-},{}],33:[function(require,module,exports){
+},{}],34:[function(require,module,exports){
 /*!
  * URI.js - Mutating URLs
  * Second Level Domain (SLD) Support
@@ -21332,7 +21822,7 @@ function symbolObservablePonyfill(root) {
   return SLD;
 }));
 
-},{}],34:[function(require,module,exports){
+},{}],35:[function(require,module,exports){
 /*!
  * URI.js - Mutating URLs
  *
@@ -23672,7 +24162,7 @@ function symbolObservablePonyfill(root) {
   return URI;
 }));
 
-},{"./IPv6":32,"./SecondLevelDomains":33,"./punycode":35}],35:[function(require,module,exports){
+},{"./IPv6":33,"./SecondLevelDomains":34,"./punycode":36}],36:[function(require,module,exports){
 (function (global){
 /*! https://mths.be/punycode v1.4.0 by @mathias */
 ;(function(root) {

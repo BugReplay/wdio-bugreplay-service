@@ -6,7 +6,7 @@ Install the package
     npm install wdio-bugreplay-service --save-dev
 
 ## Configuration
-You will need to sign up for an account at https://bugreplay.com
+You will need to sign up for an account at https://bugreplay.com. After that you will need to login and get an API key by clicking the Hamburger Menu, click My Settings, and then Show API Key. You'll use this in the configuration file.
 
 In wdio.conf.js, you will need to add both the bugreplay service as well as add the configure the BugReplay automation extension to be added to chrome:
 
@@ -26,8 +26,7 @@ In wdio.conf.js, you will need to add both the bugreplay service as well as add 
         // ...
         services: [
             ['bugreplay', {
-                email: 'yourbugreplayemail@something.com',
-                password: 'yourbugreplaypassword'080
+                apiKey: 'YOUR_BUGREPLAY_API_KEY_GOES_HERE'
             }]
         ],
         // ...

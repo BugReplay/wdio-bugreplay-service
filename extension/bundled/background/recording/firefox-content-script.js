@@ -35,12 +35,6 @@ function runContentScript(browser, navigator, MediaRecorder, document, FileReade
         }
         browser.runtime.onMessage.removeListener(listener);
     }
-    function streamWithAudio(videoStream, audioStream) {
-        if (audioStream) {
-            videoStream.addTrack(audioStream.getTracks()[0]);
-        }
-        return videoStream;
-    }
     function withStream(s) {
         try {
             stream = s;
@@ -129,41 +123,22 @@ function runContentScript(browser, navigator, MediaRecorder, document, FileReade
     }
     navigator.mediaDevices
         .getUserMedia({
+        audio: recordMic,
         video: {
             mediaSource: 'window',
         },
     })
         .then(function (mediaStream) {
-        console.log(mediaStream);
-        if (recordMic) {
-            navigator.mediaDevices
-                .getUserMedia({ audio: true })
-                .then(function (micStream) {
-                if (countdownTimer) {
-                    browser.runtime.sendMessage({
-                        type: 'FIREFOX_VIDEO_RECORDING_COUNTDOWN_START',
-                    });
-                    setTimeout(function () {
-                        withStream(streamWithAudio(mediaStream, micStream));
-                    }, 3000);
-                }
-                else {
-                    withStream(streamWithAudio(mediaStream, micStream));
-                }
+        if (countdownTimer) {
+            browser.runtime.sendMessage({
+                type: 'FIREFOX_VIDEO_RECORDING_COUNTDOWN_START',
             });
+            setTimeout(function () {
+                withStream(mediaStream);
+            }, 3000);
         }
         else {
-            if (countdownTimer) {
-                browser.runtime.sendMessage({
-                    type: 'FIREFOX_VIDEO_RECORDING_COUNTDOWN_START',
-                });
-                setTimeout(function () {
-                    withStream(mediaStream);
-                }, 3000);
-            }
-            else {
-                withStream(mediaStream);
-            }
+            withStream(mediaStream);
         }
     })
         .catch(function (error) {

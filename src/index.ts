@@ -1,13 +1,11 @@
 import BugReplayExtension from './BugReplayExtension'
 
 type BugReplayServiceOptions = {
-  email: string,
-  password: string
+  apiKey: string
 }
 
 type BugReplayServiceAttributes = {
-  email: string,
-  password: string
+  apiKey: string
 }
 
 export default class BugReplayService {
@@ -16,7 +14,7 @@ export default class BugReplayService {
     this.options = options
   }
   async before() {
-    await BugReplayExtension.auth(this.options.email, this.options.password)
+    await BugReplayExtension.auth(this.options.apiKey)
   }
   async beforeTest() {
     await BugReplayExtension.startRecording()

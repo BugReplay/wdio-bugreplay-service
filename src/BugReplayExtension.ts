@@ -16,16 +16,16 @@ const BugReplayExtension = {
       }, '*');
     }, payload)
   },
-  async auth(email: string, password: string) {
-    await browser.url("https://dev-app.bugreplay.com");
-    const emailField = await $('#email')
-    await emailField.setValue(email)
-    const passwordField = await $('#password')
-    await passwordField.setValue(password)
-    const submitButton = await $('button[type=submit]')
-    await submitButton.click()
-    await browser.pause(1000)
+
+  async auth(apiKey: string) {
+    // For now the extension requires that you are on a real page before it can initialize
+    browser.url('https://bugreplay.com')
+    this.dispatch({
+      type: 'SET_API_KEY',
+      payload: apiKey,
+    })
   },
+  
   async startRecording() {
     this.dispatch({
       type: 'POPUP_CONNECT'
@@ -36,9 +36,11 @@ const BugReplayExtension = {
     await sleep(500)
     this.dispatch({ type: 'CLICK_START_RECORDING_SCREEN' })
   },
+
   async stopRecording() {
     this.dispatch({ type: 'CLICK_STOP_RECORDING' })
   },
+
   async saveReport(title = "Automated Bug Report", description = "Automated Bug Report") {
     await sleep(500)
     this.dispatch({ 
