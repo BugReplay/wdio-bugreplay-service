@@ -26,7 +26,8 @@ In wdio.conf.js, you will need to add both the bugreplay service as well as add 
         // ...
         services: [
             ['bugreplay', {
-                apiKey: 'YOUR_BUGREPLAY_API_KEY_GOES_HERE'
+                apiKey: 'YOUR_BUGREPLAY_API_KEY_GOES_HERE',
+                saveSuccessfulTests: true // the default is false
             }]
         ],
         // ...

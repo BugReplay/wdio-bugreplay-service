@@ -63,6 +63,10 @@ const BugReplayExtension = {
     await sleep(500)
     this.dispatch({ type: 'CLICK_SUBMIT_REPORT' })
     await sleep(3000)
+  },
+
+  async cancelReport() {
+    this.dispatch({ type: 'CANCEL_REPORT' })
   }
 }
 

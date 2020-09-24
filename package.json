@@ -25,6 +25,9 @@
   "license": "SEE LICENSE in LICENSE and extension/LICENSE",
   "devDependencies": {
     "typescript": "^3.9.7",
-    "webdriverio": "^6.3.5"
+    "webdriverio": "^6.5.2"
+  },
+  "dependencies": {
+    "wdio": "^4.0.0"
   }
 }
