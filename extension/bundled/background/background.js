@@ -176,6 +176,22 @@ function setApiKey(key) {
     window.localStorage.setItem('br_api_key', key);
 }
 exports.setApiKey = setApiKey;
+function resetFbbApiKey() {
+    window.localStorage.removeItem('br_fbb_api_key');
+}
+exports.resetFbbApiKey = resetFbbApiKey;
+function setFbbApiKey(key, mode) {
+    window.localStorage.setItem('br_fbb_api_key', JSON.stringify({
+        key: key,
+        mode: mode,
+    }));
+}
+exports.setFbbApiKey = setFbbApiKey;
+function getFbbApiKey() {
+    const fbbApiKey = window.localStorage.getItem('br_fbb_api_key');
+    return fbbApiKey ? JSON.parse(fbbApiKey) : {};
+}
+exports.getFbbApiKey = getFbbApiKey;
 function api(window, settings) {
     const urlFor = (path) => {
         return (window.apiBaseUrl +
@@ -303,6 +319,14 @@ function api(window, settings) {
     function fbbToken(apiKey, feedbackSessionTokenId) {
         return __awaiter(this, void 0, void 0, function* () {
             return new Promise((resolve, reject) => {
+                let data = {
+                    api_key: apiKey,
+                };
+                if (feedbackSessionTokenId) {
+                    data['additional_args'] = {
+                        feedbackSessionTokenId: feedbackSessionTokenId,
+                    };
+                }
                 window.$.ajax({
                     beforeSend(jqXHR) {
                         jqXHR.setRequestHeader('X-BR-Origin', window.browser.runtime.id);
@@ -319,12 +343,7 @@ function api(window, settings) {
                     error: reject,
                     url: urlFor('/api/report/external-token'),
                     method: 'POST',
-                    data: {
-                        api_key: apiKey,
-                        additional_args: {
-                            feedbackSessionTokenId: feedbackSessionTokenId,
-                        },
-                    },
+                    data: data,
                 });
             });
         });
@@ -332,18 +351,31 @@ function api(window, settings) {
     function getFbbTokenInfo() {
         return __awaiter(this, void 0, void 0, function* () {
             try {
+                const fbbApiKey = getFbbApiKey();
+                if (fbbApiKey) {
+                    const apiKey = fbbApiKey.key;
+                    const mode = fbbApiKey.mode;
+                    const externalReportJwt = yield fbbToken(apiKey);
+                    return {
+                        fetchedFromServer: true,
+                        externalReportJwt: externalReportJwt,
+                        mode: mode,
+                    };
+                }
                 const fbbCookie = yield fetchCookieByName('br_fbb');
                 const data = JSON.parse(decodeURIComponent(fbbCookie));
                 const externalReportJwt = yield fbbToken(data.apiKey, data.additionalOpts.feedbackSessionTokenId);
                 return {
                     fetchedFromServer: true,
                     externalReportJwt: externalReportJwt,
+                    mode: 'unattached',
                 };
             }
             catch (error) {
                 return {
                     fetchedFromServer: true,
                     externalReportJwt: undefined,
+                    mode: undefined,
                 };
             }
         });
@@ -379,9 +411,10 @@ function api(window, settings) {
                     const json = yield new Promise((resolve, reject) => {
                         window.$.ajax(Object.assign({ beforeSend(jqXHR) {
                                 jqXHR.setRequestHeader('X-BR-Origin', window.browser.runtime.id);
-                                if (fbbext) {
-                                    if (fbbTokenResponse && fbbTokenResponse.externalReportJwt)
-                                        jqXHR.setRequestHeader('x-external-report-jwt', fbbTokenResponse.externalReportJwt);
+                                if (fbbext &&
+                                    fbbTokenResponse &&
+                                    fbbTokenResponse.externalReportJwt) {
+                                    jqXHR.setRequestHeader('x-external-report-jwt', fbbTokenResponse.externalReportJwt);
                                 }
                                 else {
                                     if (accessToken !== '')
@@ -820,13 +853,29 @@ const store_1 = require("./store");
 const browser_detection_1 = require("../browser-detection");
 const subscribe_1 = require("./subscribe");
 const api_1 = require("./api");
+const api_2 = require("./api");
 const notifications_1 = require("./notifications");
 const settings_1 = require("./settings");
 const Api = api_1.api(window, settings_1.settings);
 // Attach the store to the window so the popup can access it
 const store = (window.store = store_1.createStore(settings_1.settings, Api));
+chrome.runtime.onConnectExternal.addListener(port => {
+    if (port.name !== 'feedbackControllerPort')
+        return;
+    port.onMessage.addListener((msg) => {
+        if (msg.name === 'activateSession') {
+            api_2.setFbbApiKey(msg.apiKey, 'zendesk');
+            store.dispatch({
+                type: 'SET_ZENDESK_PORT',
+                payload: { zendeskPort: port },
+            });
+        }
+    });
+});
 chrome.runtime.onMessage.addListener(function (message) {
-    store.dispatch(message.payload);
+    if (message.type === "REDUX_DISPATCH") {
+        store.dispatch(message.payload);
+    }
 });
 chrome.tabs.onRemoved.addListener(tabId => store.dispatch({ type: 'TAB_CLOSED', payload: { tabId } }));
 subscribe_1.subscribe(window.baseUrl, window.apiBaseUrl, settings_1.settings, store, navigator, screen, browser, browser.tabs, browser.tabCapture, chrome.desktopCapture, chrome.browserAction, MediaRecorder, Blob, chrome, Api, notifications_1.notifications(chrome.notifications, chrome.tabs), browser_detection_1.capabilities);
@@ -2468,6 +2517,7 @@ const errors = require("./errors");
 const utils_1 = require("../utils");
 const api_1 = require("./api");
 const emptyState = {
+    zendeskPort: undefined,
     fbbInit: true,
     popup: {
         connected: false,
@@ -2590,6 +2640,9 @@ function reducer(settings, api, initialState = emptyState, action) {
                     ? initialState.userInfoResponse
                     : null, alert: null });
         }
+        case 'SET_ZENDESK_PORT': {
+            return Object.assign(Object.assign({}, initialState), { zendeskPort: action.payload.zendeskPort });
+        }
         case 'SET_RECORD_MODE': {
             return Object.assign(Object.assign({}, initialState), { recordMode: action.payload.mode });
         }
@@ -2672,9 +2725,16 @@ function reducer(settings, api, initialState = emptyState, action) {
             reports.processing.forEach(report => {
                 if (report.processingId == action.payload.processingId) {
                     report.clientUrl = action.payload.clientUrl;
+                    if (initialState.zendeskPort) {
+                        api_1.resetFbbApiKey();
+                        initialState.zendeskPort.postMessage({
+                            name: 'reportComplete',
+                            url: action.payload.clientUrl,
+                        });
+                    }
                 }
             });
-            return Object.assign(Object.assign({}, initialState), { reports: reports });
+            return Object.assign(Object.assign({}, initialState), { zendeskPort: undefined, reports: reports });
         }
         case 'CLICK_SUBMIT_REPORT': {
             const reportDetails = initialState.report.details;
@@ -2910,6 +2970,16 @@ function subscribe(baseUrl, apiBaseUrl, settings, store, navigator, screen, brow
         const nextState = store.getState();
         const prevState = previousState;
         previousState = nextState;
+        // Pass Redux states to the automation layer
+        const automation = window.automation;
+        if (automation) {
+            chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+                chrome.tabs.sendMessage(tabs[0].id, {
+                    type: "REDUX_UPDATE",
+                    payload: { prevState, nextState }
+                });
+            });
+        }
         // Check the active tab if the user just connected
         if (nextState.popup.connected && !prevState.popup.connected) {
             if (fbbext) {
@@ -2936,7 +3006,6 @@ function subscribe(baseUrl, apiBaseUrl, settings, store, navigator, screen, brow
         if (nextState.popup.activeTab &&
             !prevState.popup.activeTab) {
             system_info_1.checkSystemInfo(navigator, chrome, tabs, nextState.popup.activeTab, dispatchBackgroundActions);
-            console.log('here');
         }
         // Take a screenshot if requested by the user
         if (nextState.screenshot.requestedByUser &&

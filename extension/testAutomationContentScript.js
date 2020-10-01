@@ -6,3 +6,8 @@ window.addEventListener("message", function(event) {
   chrome.runtime.sendMessage(event.data) 
 }, false)
 
+chrome.runtime.onMessage.addListener(function(message) {
+  if(message.type === "REDUX_UPDATE") {
+    window.postMessage(message, "*")
+  }
+})

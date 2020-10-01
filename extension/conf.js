@@ -1,1 +1,1 @@
-window.baseUrl = 'https://app.bugreplay.com'; window.apiBaseUrl = 'https://app.bugreplay.com';
+window.baseUrl = 'https://app.bugreplay.com'; window.apiBaseUrl = 'https://app.bugreplay.com'; window.automation = true
