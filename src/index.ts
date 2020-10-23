@@ -10,9 +10,23 @@ type BugReplayServiceAttributes = {
   saveSuccessfulTests: false
 }
 
+function getTestHierarchy(test:any):string[] {
+  if(test.parent) {
+    return [...getTestHierarchy(test.parent), test.title]
+  } else {
+    if(test.title && test.title !== '') {
+      return [test.title]
+    } else {
+      return []
+    }
+  }
+}
+
 export default class BugReplayService {
   options: BugReplayServiceAttributes;
+  testRunId: string;
   constructor(options: BugReplayServiceOptions) {
+    this.testRunId = process.env.TEST_RUN_ID || new Date().toISOString()
     this.options = options
   }
   async before() {
@@ -23,11 +37,17 @@ export default class BugReplayService {
   }
   async afterTest(test: any, context:any, result:any) {
     const time = (new Date()).toISOString() 
+    const { passed } = result
+    const hierarchy = getTestHierarchy(test.ctx.test)
     await BugReplayExtension.stopRecording()
     if(result.passed && !this.options.saveSuccessfulTests) {
       await BugReplayExtension.cancelReport()
     } else {
-      await BugReplayExtension.saveReport(`WDIO - ${test.parent} - ${test.title} - ${time}`)
+      await BugReplayExtension.saveReport(`WDIO - ${test.parent} - ${test.title} - ${time}`, {
+        test_hierarchy: hierarchy.join(' > '),
+        test_passed: passed,
+        test_run_id: this.testRunId,
+      })
     }
   }
 }

@@ -873,7 +873,7 @@ chrome.runtime.onConnectExternal.addListener(port => {
     });
 });
 chrome.runtime.onMessage.addListener(function (message) {
-    if (message.type === "REDUX_DISPATCH") {
+    if (message.type === 'REDUX_DISPATCH') {
         store.dispatch(message.payload);
     }
 });
@@ -2348,6 +2348,9 @@ function doSubmitReport(navigator, report, api, settings, dispatchBackgroundActi
                 : undefined,
             title: report.details.title,
             description: report.details.description,
+            test_hierarchy: report.details.test_hierarchy,
+            test_passed: report.details.test_passed,
+            test_run_id: report.details.test_run_id,
         };
         if (reportData.source_url == 'about:blank') {
             delete reportData.source_url;
@@ -2975,8 +2978,8 @@ function subscribe(baseUrl, apiBaseUrl, settings, store, navigator, screen, brow
         if (automation) {
             chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
                 chrome.tabs.sendMessage(tabs[0].id, {
-                    type: "REDUX_UPDATE",
-                    payload: { prevState, nextState }
+                    type: 'REDUX_UPDATE',
+                    payload: { prevState, nextState },
                 });
             });
         }

@@ -44,11 +44,12 @@ const BugReplayExtension = {
         type: 'REDUX_DISPATCH',
         payload: { type: 'CLICK_STOP_RECORDING' }
       }, '*');
+
     })
   },
 
-  async saveReport(title = "Automated Bug Report", description = "Automated Bug Report") {
-    await browser.executeAsync((title, description, done: any) => {
+  async saveReport(title = "Automated Bug Report", options = {}) {
+    await browser.executeAsync((title, options, done: any) => {
       window.addEventListener("message", (event) => {
         console.log(event)
         if(!event?.data?.payload?.nextState?.report?.started &&
@@ -65,7 +66,7 @@ const BugReplayExtension = {
           payload: {
             updates: {
               title,
-              description,
+              ...options,
             }
           },
         }
@@ -76,11 +77,17 @@ const BugReplayExtension = {
           type: 'CLICK_SUBMIT_REPORT', 
         }
       }, '*');
-    }, title, description)
+
+      window.postMessage({
+        type: 'REDUX_DISPATCH',
+        payload: { type: 'POPUP_DISCONNECT' }
+      }, '*');
+    }, title, options)
   },
 
   async cancelReport() {
     this.dispatch({ type: 'CANCEL_REPORT' })
+    this.dispatch({ type: 'POPUP_DISCONNECT' })
   }
 }
 

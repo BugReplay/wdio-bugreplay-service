@@ -1,6 +1,6 @@
 {
   "name": "wdio-bugreplay-service",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -27,7 +27,5 @@
     "typescript": "^3.9.7",
     "webdriverio": "^6.5.2"
   },
-  "dependencies": {
-    "wdio": "^4.0.0"
-  }
+  "dependencies": {}
 }
