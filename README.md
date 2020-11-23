@@ -36,4 +36,11 @@ In wdio.conf.js, you will need to add both the bugreplay service as well as add 
 After this configuration your tests will automatically be recorded to video, uploaded to BugReplay, and ready for playback alongside the timesynced JS console and network traffic logs.
 
 ## Limitations
-This currently only works for chromedriver. We're looking to expand to other browsers in the future.
+This currently only works for chromedriver and edgedriver. We're looking to expand to other browsers in the future.
+
+## Working with MS Edge (Chromium)
+We've had the best luck using the [selenium-standalone-service](https://webdriver.io/docs/selenium-standalone-service.html) 
+for running on MS Edge.
+
+The configuration looks the same except instead of browserName: 'chrome' you'd have browserName: 'MicrosoftEdge'.
+Instead of goog:chromeOptions you'd have ms:edgeOptions.
