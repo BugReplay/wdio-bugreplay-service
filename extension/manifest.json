@@ -26,12 +26,17 @@
     "cookies",
     "https://*.bugreplay.com/",
     "https://storage.googleapis.com/",
+    "https://*.s3-accelerate.amazonaws.com/",
     "<all_urls>"
   ],
   "content_scripts": [
     {
-      "matches": ["*://*/*"],
-      "js": ["testAutomationContentScript.js"]
+      "matches": [
+        "*://*/*"
+      ],
+      "js": [
+        "testAutomationContentScript.js"
+      ]
     }
   ],
   "web_accessible_resources": [
