@@ -2357,6 +2357,15 @@ function doSubmitReport(navigator, report, api, settings, dispatchBackgroundActi
         }
         if (!fbbext) {
             reportData['project_id'] = report.details.project_id;
+            if(report.details.assigned_user_id) {
+              reportData['assigned_user_id'] = report.details.assigned_user_id;
+            }
+            if(report.details.status_id) {
+              reportData['status_id'] = report.details.status_id;
+            }
+            if(report.details.tags) {
+              reportData['tags'] = report.details.tags;
+            }
         }
         const createdReport = yield api.createReport(reportData);
         const { report_id } = createdReport.report;
