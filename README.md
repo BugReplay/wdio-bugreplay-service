@@ -18,7 +18,7 @@ In wdio.conf.js, you will need to add both the bugreplay service as well as add 
           browserName: 'chrome',
           'goog:chromeOptions': {
             args: [
-              '--load-extension=node_modules/wdio-bugreplay-service/extension/',
+              '--load-extension=node_modules/bugreplay-automation/extension/',
               '--auto-select-desktop-capture-source=Record This Window'
             ]
           },
