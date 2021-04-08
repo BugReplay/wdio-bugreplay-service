@@ -13,7 +13,7 @@ var BugReplayExtension = {
         }, payload, console.log);
     },
     auth: function (email, password) {
-        browser.url("https://dev-app.bugreplay.com");
+        browser.url("https://app.bugreplay.com");
         Promise.all([
             $('#email').then(function (e) { return e.setValue(email); }),
             $('#password').then(function (e) { return e.setValue(password); })

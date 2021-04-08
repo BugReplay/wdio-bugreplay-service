@@ -1,7 +1,4 @@
 import WebdriverIO from 'webdriverio'
-//declare var browser: WebdriverIO.BrowserObject;
-//declare var driver: WebdriverIO.BrowserObject;
-//declare var $: (selector: string | Function) => Promise<WebdriverIO.Element>;
 
 const BugReplayExtension = {
   dispatch(payload: any) {
