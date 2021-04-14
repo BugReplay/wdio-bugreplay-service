@@ -3,35 +3,39 @@ The BugReplay WDIO service records screencasts of your automated tests including
 ## Installation
 Install the package
 
-    npm install wdio-bugreplay-service --save-dev
+```sh
+npm install wdio-bugreplay-service --save-dev
+```
 
 ## Configuration
 You will need to sign up for an account at https://bugreplay.com. After that you will need to login and get an API key by clicking the Hamburger Menu, click My Settings, and then Show API Key. You'll use this in the configuration file.
 
 In wdio.conf.js, you will need to add both the bugreplay service as well as add the configure the BugReplay automation extension to be added to chrome:
 
-    // wdio.conf.js
-    export.config = {
-        // ...
-        capabilities: [{
-          // ...
-          browserName: 'chrome',
-          'goog:chromeOptions': {
-            args: [
-              '--load-extension=node_modules/bugreplay-automation/extension/',
-              '--auto-select-desktop-capture-source=Record This Window'
-            ]
-          },
-        }
-        // ...
-        services: [
-            ['bugreplay', {
-                apiKey: 'YOUR_BUGREPLAY_API_KEY_GOES_HERE',
-                saveSuccessfulTests: true // the default is false
-            }]
-        ],
-        // ...
-    };
+```js
+// wdio.conf.js
+export.config = {
+    // ...
+    capabilities: [{
+      // ...
+      browserName: 'chrome',
+      'goog:chromeOptions': {
+        args: [
+          '--load-extension=node_modules/bugreplay-automation/extension/',
+          '--auto-select-desktop-capture-source=Record This Window'
+        ]
+      },
+    }
+    // ...
+    services: [
+        ['bugreplay', {
+            apiKey: 'YOUR_BUGREPLAY_API_KEY_GOES_HERE',
+            saveSuccessfulTests: true // the default is false
+        }]
+    ],
+    // ...
+};
+```
 
 After this configuration your tests will automatically be recorded to video, uploaded to BugReplay, and ready for playback alongside the timesynced JS console and network traffic logs.
 
