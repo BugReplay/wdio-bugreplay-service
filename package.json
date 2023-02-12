@@ -24,7 +24,7 @@
   "license": "SEE LICENSE in LICENSE",
   "devDependencies": {
     "typescript": "^3.9.7",
-    "webdriverio": "^6.5.2"
+    "webdriverio": "^8.3.5"
   },
   "dependencies": {
     "bugreplay-automation": "^1.0.6"
